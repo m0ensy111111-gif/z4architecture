@@ -1,0 +1,69 @@
+import streamlit as st
+import numpy as np
+
+# --- 页面配置 ---
+st.set_page_config(page_title="穿孔铝板半径预测模型", layout="wide")
+
+st.title("🏗️ 穿孔铝板参数化设计代理模型")
+st.markdown("""
+本工具基于 1000 组模拟数据生成的**对数回归方程**，可实时预测满足室内照度要求的穿孔铝板半径。
+""")
+
+# --- 侧边栏：参数输入 ---
+st.sidebar.header("输入设计参数")
+
+# 时间参数
+month = st.sidebar.slider("月份 (Month)", 1, 12, 6)
+day = st.sidebar.slider("日期 (Day)", 1, 30, 21)
+hour = st.sidebar.slider("小时 (Hour)", 8, 17, 12)
+
+# 几何参数
+azi = st.sidebar.number_input("太阳方位角 (Sun Azimuth)", 0.0, 359.0, 180.0)
+ori = st.sidebar.number_input("建筑朝向角 (Orientation)", 0.0, 359.0, 180.0)
+
+# 环境参数
+ein = st.sidebar.number_input("目标室内照度 (Inside Lux)", 0.0, 1000.0, 300.0)
+eout = st.sidebar.number_input("室外环境照度 (Outside Lux)", 0.0, 150000.0, 50000.0)
+
+# --- 核心计算逻辑 ---
+def predict_radius(m, d, h, azi, ori, ein, eout):
+    # 模型系数 (基于之前计算的精确值)
+    intercept = 91.6596
+    c_m = -0.0002
+    c_d = 0.0785
+    c_h = 0.0810
+    c_cos = 0.1089
+    c_ein = 76.6408
+    c_eout = -69.4599
+    
+    # 几何变换
+    cos_diff = np.cos(np.radians(azi - ori))
+    
+    # 对数变换
+    log_ein = np.log1p(ein)
+    log_eout = np.log1p(eout)
+    
+    # 方程求和
+    r = (intercept + (c_m * m) + (c_d * d) + (c_h * h) + 
+         (c_cos * cos_diff) + (c_ein * log_ein) + (c_eout * log_eout))
+    
+    # 限制物理范围 (1-150mm)
+    return max(1.0, min(150.0, r)), cos_diff
+
+# 执行预测
+predicted_r, cos_val = predict_radius(month, day, hour, azi, ori, ein, eout)
+
+# --- 结果展示 ---
+col1, col2 = st.columns(2)
+
+with col1:
+    st.metric(label="预测孔洞半径 (R)", value=f"{predicted_r:.2f} mm")
+    st.info(f"当前入射因子 cos(diff): {cos_val:.4f}")
+
+with col2:
+    st.subheader("最终数学方程")
+    st.latex(r"R = 91.66 - 0.0002M + 0.078D + 0.081H + 0.11\cos(Azi-Ori) + 76.64\ln(E_{in}+1) - 69.46\ln(E_{out}+1)")
+
+# --- 底部图表或说明 ---
+st.divider()
+st.caption("注：本模型拟合优度 R² ≈ 0.91。当计算值超出 1-150mm 范围时，会自动锁定在边界值。")
